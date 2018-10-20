@@ -25,23 +25,34 @@ defmodule CHORD.NodeChord do
     predecessor = nil
     mbits = elem(inputs, 2)
     successor = elem(inputs, 1)
-    nodeId = :crypto.hash(:sha, elem(inputs, 0))
+    nodeIdList = elem(inputs, 3)
+    nodeIndex = elem(inputs, 4)
+    nodeId = elem(nodeIdList, nodeIndex)
     key = nodeId
-    fingerTable = initizlizeFingerTable(nodeId, mbits, successor)
+    fingerTable = initializeFingerTable(nodeId, mbits, nodeIdList, nodeIndex)
     {fingerTable, predecessor, successor, mbits, nodeId, key}
   end
 
-  def initizlizeFingerTable(nodeId, mbits, successor) do
+  def initializeFingerTable(nodeId, mbits, nodeIdList, nodeIndex) do
     Enum.reduce(0..(mbits - 1), %{}, fn index, fingerTable ->
-      nodeIdAtIndex = rem(nodeId + :math.pow(2, index), :math.pow(2, mbits))
-      if(nodeIdAtIndex <= successor) do
-        Map.put(fingerTable, index, successor)
-      end
+      newNodeId = rem(nodeId + :math.pow(2, index), :math.pow(2, mbits))
+      nextNode = findFingerNode(nodeIdList, nodeIndex, newNodeId)
+      Map.put(fingerTable, index, nextNode)
     end)
   end
 
+  defp findFingerNode(nodeList, index, key) do
+    node = if(elem(nodeList, index) >  key) do
+      elem(nodeList, index)
+    else
+      index = index + 1
+      findFingerNode(nodeList, index, key)
+    end
+    node
+  end
+
   def handle_cast({:join, knownNode}, {fingerTable, predecessor, _, mbits, nodeId, key}) do
-    successor = GenServer.call(knownNode, {:findSuccessor, nodeId})
+    successor = GenServer.call(knownNode, {:findFingerNode, nodeId})
     GenServer.call(self(), {:notify, successor})
     {:noreply, {fingerTable, predecessor, successor, mbits, nodeId, key}}
   end
@@ -51,7 +62,7 @@ defmodule CHORD.NodeChord do
   end
 
   def handle_call(
-        {:findSuccessor, nodeIdToFind},
+        {:findFingerNode, nodeIdToFind},
         {fingerTable, predecessor, successor, mbits, nodeId, key}
       ) do
     foundSuccessor =
@@ -59,7 +70,7 @@ defmodule CHORD.NodeChord do
         successor
       else
         nearesetNode = GenServer.call(self(), {:closestPrecedingNode, nodeIdToFind})
-        GenServer.call(self(), {:findSuccessor, nearesetNode})
+        GenServer.call(self(), {:findFingerNode, nearesetNode})
       end
 
     {:reply, foundSuccessor, {fingerTable, predecessor, successor, mbits, nodeId, key}}
@@ -76,7 +87,6 @@ defmodule CHORD.NodeChord do
           {:cont, fingerTable[mbits-1]}
         end
     end)
-
     {:reply, foundNodeId, {fingerTable, predecessor, successor, mbits, nodeId, key}}
   end
 end

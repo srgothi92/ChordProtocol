@@ -1,4 +1,4 @@
-defmodule CHORD do
+defmodule CHORD.Main do
   @moduledoc """
   Creates topology and Transmits message or s,w
   based on the type of algorithm to random neighbours.
@@ -28,22 +28,27 @@ defmodule CHORD do
   end
 
   defp createChordRing(noOfNodes) do
-    mbits = 32
-    nodeIdList = getNodeIdList(noOfNodes, mbits)
+    mbits = 8
+    nodeIdTuple = getnodeIdTuple(noOfNodes, mbits)
     Enum.each(0..noOfNodes-1, fn index->
       # Node id is present at currenct index and Successor is (next index)% noOfNodes in list
-      nodeId = elem(nodeIdList,index)
-      CHORD.NodeChord.start_link({nodeId, elem(nodeIdList,div(index+1,noOfNodes)), mbits}, name: nodeId)
+      nodeId = elem(nodeIdTuple,index)
+      CHORD.NodeChord.start_link({nodeIdTuple, index, elem(nodeIdTuple,rem(index+1,noOfNodes)), mbits}, nodeId)
     end)
   end
 
-  defp getNodeIdList(noOfNodes, mbits) do
-    nodeIdList = Enum.reduce(1..noOfNodes,{}, fn index, acc ->
+  defp getnodeIdTuple(noOfNodes, mbits) do
+    nodeIdTuple = Enum.reduce(1..noOfNodes,{}, fn index, acc ->
       nodeId = :crypto.hash(:sha, createRandomIpAddress) |> Base.encode16
-      nodeId = String.slice(nodeId, (String.length(nodeId) - rem(mbits,8))..String.length(nodeId))
+      # Take last m bits from the hash string
+      nodeId = String.slice(nodeId, (String.length(nodeId) - div(mbits,4))..String.length(nodeId))
       acc = Tuple.append(acc, nodeId)
     end)
-    Enum.sort(nodeIdList)
+    nodeIdList = Tuple.to_list(nodeIdTuple)
+    nodeIdList = Enum.sort(nodeIdList)
+    nodeIdTuple = List.to_tuple(nodeIdList)
+    IO.inspect nodeIdTuple
+    nodeIdTuple
   end
 
   defp createRandomIpAddress() do

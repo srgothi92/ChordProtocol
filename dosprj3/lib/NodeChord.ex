@@ -45,10 +45,10 @@ defmodule CHORD.NodeChord do
           Kernel.trunc(:math.pow(2, mbits))
         )
       nextNode = findFingerNode(nodeIdList, nodeIndex, newNodeId)
+      #IO.inspect(nextNode)
       Map.put(acc, index, nextNode)
     end)
-    IO.inspect(nodeIndex)
-    IO.inspect(fingerTable)
+    #IO.inspect(fingerTable)
     fingerTable
   end
 
@@ -60,13 +60,15 @@ defmodule CHORD.NodeChord do
       # return previous node
       convertToInt(elem(nodeList, index-1))
     end
+    #Logger.info("previousNodeId #{inspect(previousNodeId)}")
     currentNodeId = convertToInt(elem(nodeList, index))
+    #Logger.info("currentNodeId #{inspect(currentNodeId)}")
     fingerNodeId =
       cond do
-        index == 0 && key > previousNodeId->
+        index == 0 && key > previousNodeId || key < currentNodeId->
           elem(nodeList, 0)
 
-        index != 0 && index < tuple_size(nodeList) && key > previousNodeId && key <  currentNodeId ->
+        index != 0 && index < tuple_size(nodeList) && key > previousNodeId && key <=  currentNodeId ->
           convertToHex(currentNodeId)
 
         true ->

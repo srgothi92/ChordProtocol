@@ -34,6 +34,7 @@ defmodule CHORD.Main do
     Enum.each(0..noOfNodes-1, fn index->
       # Node id is present at currenct index and Successor is (next index)% noOfNodes in list
       nodeId = elem(nodeIdTuple,index)
+      #nodeIdTuple = {"396","458","4DE","63E","762","82A","92E","954","AEF","CD3","ED8","EF5"}
       CHORD.NodeChord.start_link({nodeIdTuple, index, elem(nodeIdTuple,rem(index+1,noOfNodes)), mbits}, nodeId)
     end)
   end

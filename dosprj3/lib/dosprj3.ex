@@ -23,21 +23,24 @@ defmodule CHORD do
     nodes = {}
     numofReq = elem(inputs, 1)
     completedNodes = %{}
+    createChordRing(noOfNodes)
     {noOfNodes, numofReq, nodes, completedNodes}
   end
 
-  defp createChordRing() do
+  defp createChordRing(noOfNodes) do
     mbits = 32
-    nodeIdList = getNodeIdList()
+    nodeIdList = getNodeIdList(noOfNodes)
     Enum.each(0..noOfNodes-1, fn index->
       # Node id is present at currenct index and Successor is (next index)% noOfNodes in list
-      newNode = CHORD.NodeChord.start_link({elem(nodeIdList,index), elem(nodeIdList,div(index+1,noOfNodes)), mbits}, name: nodeId)
+      nodeId = elem(nodeIdList,index)
+      CHORD.NodeChord.start_link({nodeId, elem(nodeIdList,div(index+1,noOfNodes)), mbits}, name: nodeId)
     end)
   end
 
-  defp getNodeIdList(noOfNodes) do
+  defp getNodeIdList(noOfNodes, mbits) do
     nodeIdList = Enum.reduce(1..noOfNodes,{}, fn index, acc ->
       nodeId = :crypto.hash(:sha, createRandomIpAddress) |> Base.encode16
+      nodeId = String.slice(nodeId, (String.length - rem(mbits,8))..String.length)
       acc = Tuple.append(acc, nodeId)
     end)
     Enum.sort(nodeIdList)

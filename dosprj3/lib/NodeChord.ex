@@ -5,7 +5,7 @@ defmodule CHORD.NodeChord do
   @doc """
   Starts the GenServer.
   """
-  def start_link(inputs) do
+  def start_link(inputs, name) do
     GenServer.start_link(__MODULE__, inputs)
   end
 
@@ -81,24 +81,28 @@ defmodule CHORD.NodeChord do
   end
 
   def handle_call(
-        {:findFingerNode, nodeIdToFind},
+        {:findSuccessor, nodeIdToFind, startingNode, hopCount},
         {fingerTable, predecessor, successor, mbits, nodeId, key}
       ) do
     foundSuccessor =
       if nodeIdToFind > nodeId && nodeIdToFind < successor do
         successor
+        # Inform the node which started the search that key is found
+        GenServer.call(startingNode, {:searchCompleted, hopCount})
       else
-        nearesetNode = GenServer.call(self(), {:closestPrecedingNode, nodeIdToFind})
-        GenServer.call(self(), {:findFingerNode, nearesetNode})
+        hopCount = hopCount + 1
+        nearesetNode = closestPrecedingNode(nodeIdToFind, mbits, fingerTable)
+        # Query the successor Node for the key.
+        GenServer.call(nearesetNode, {:findSuccessor, nodeIdToFind, startingNode, hopCount,})
       end
-
     {:reply, foundSuccessor, {fingerTable, predecessor, successor, mbits, nodeId, key}}
   end
 
-  def handle_call(
-        {:closestPrecedingNode, nodeIdToFind},
-        {fingerTable, predecessor, successor, mbits, nodeId, key}
-      ) do
+  def handle_call({:searchCompleted, hopCount}) do
+    GenServer.call(self(), {:searchKeys, hopCount})
+  end
+
+  def closestPrecedingNode(nodeIdToFind, mbits, fingerTable) do
     foundNodeId = Enum.reduce_while(mbits..1, 0,fn mapKey, _ ->
         if (Map.has_key?(fingerTable, mapKey) && nodeIdToFind > fingerTable.mapKey) do
           {:halt, fingerTable.mapKey}
@@ -106,7 +110,7 @@ defmodule CHORD.NodeChord do
           {:cont, fingerTable[mbits-1]}
         end
     end)
-    {:reply, foundNodeId, {fingerTable, predecessor, successor, mbits, nodeId, key}}
+    foundNodeId
   end
 
   def handle_call(

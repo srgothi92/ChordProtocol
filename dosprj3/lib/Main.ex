@@ -1,4 +1,5 @@
 defmodule CHORD.Main do
+  require Logger
   @moduledoc """
   Creates topology and Transmits message or s,w
   based on the type of algorithm to random neighbours.
@@ -28,7 +29,7 @@ defmodule CHORD.Main do
   end
 
   defp createChordRing(noOfNodes) do
-    mbits = 8
+    mbits = 12
     nodeIdTuple = getnodeIdTuple(noOfNodes, mbits)
     Enum.each(0..noOfNodes-1, fn index->
       # Node id is present at currenct index and Successor is (next index)% noOfNodes in list
@@ -54,5 +55,12 @@ defmodule CHORD.Main do
   defp createRandomIpAddress() do
     aIpAddr = [:rand.uniform(255), :rand.uniform(255),:rand.uniform(255),:rand.uniform(255)]
     aIpAddr |> Enum.join(":")
+  end
+
+  def handle_call({:completedReq, nodeId, avgHop}, {noOfNodes, numofReq, nodes, completedNodes}) do
+    completedNodes = Map.put(nodeId, avgHop)
+    if map_size(completedNodes) == noOfNodes do
+      Logger.info("Completed chord search #{inspect(completedNodes)}")
+    end
   end
 end

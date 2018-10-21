@@ -29,7 +29,7 @@ defmodule CHORD do
 
   defp createChordRing(noOfNodes) do
     mbits = 32
-    nodeIdList = getNodeIdList(noOfNodes)
+    nodeIdList = getNodeIdList(noOfNodes, mbits)
     Enum.each(0..noOfNodes-1, fn index->
       # Node id is present at currenct index and Successor is (next index)% noOfNodes in list
       nodeId = elem(nodeIdList,index)
@@ -40,7 +40,7 @@ defmodule CHORD do
   defp getNodeIdList(noOfNodes, mbits) do
     nodeIdList = Enum.reduce(1..noOfNodes,{}, fn index, acc ->
       nodeId = :crypto.hash(:sha, createRandomIpAddress) |> Base.encode16
-      nodeId = String.slice(nodeId, (String.length - rem(mbits,8))..String.length)
+      nodeId = String.slice(nodeId, (String.length(nodeId) - rem(mbits,8))..String.length(nodeId))
       acc = Tuple.append(acc, nodeId)
     end)
     Enum.sort(nodeIdList)

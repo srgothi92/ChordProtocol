@@ -30,6 +30,8 @@ defmodule CHORD.NodeChord do
     nodeId = elem(nodeIdList, nodeIndex)
     key = nodeId
     fingerTable = initializeFingerTable(nodeId, mbits, nodeIdList, nodeIndex)
+    GenServer.call(self(),{:stabilize,nodeId})
+    GenServer.call(self(),{:fixFingerTable})
     {fingerTable, predecessor, successor, mbits, nodeId, key}
   end
 
@@ -49,6 +51,23 @@ defmodule CHORD.NodeChord do
       findFingerNode(nodeList, index, key)
     end
     node
+  end
+
+  def handle_cast({:searchKeys},{fingerTable, predecessor, successor, mbits, nodeId, key}) do
+    Enum.reduce(0..numofReq), fn index -> 
+     randomKey = :rand.uniform(nodeIdList) 
+     GenServer.call(self(), {:findSuccessor, randomKey})
+     end
+    {:noreply,{fingerTable, predecessor, successor, mbits, nodeId, key}} 
+  end
+  end
+
+  def handle_cast({:fixFingerTable}, {fingerTable, predecessor, successor, mbits, nodeId, key}) do
+    Enum.reduce(0..(mbits - 1), fn index,fingerTable ->
+      GenServer.call(self(),{:findSuccessor,index})
+    end
+    Process.send_after(self(), :fixFingerTable, 100)
+    {:noreply,{fingerTable, predecessor, successor, mbits, nodeId, key}}
   end
 
   def handle_cast({:join, knownNode}, {fingerTable, predecessor, _, mbits, nodeId, key}) do
@@ -89,4 +108,32 @@ defmodule CHORD.NodeChord do
     end)
     {:reply, foundNodeId, {fingerTable, predecessor, successor, mbits, nodeId, key}}
   end
+
+  def handle_call(
+    {:getPredecessor}
+    {fingerTable, predecessor, successor, mbits, nodeId, key}
+  ) do
+  {:reply,predecessor,{fingerTable, predecessor, successor, mbits, nodeId, key}}
+  end
+
+  def handle_cast(
+    {:stabilize, nodeId}
+    {fingerTable, predecessor, successor, mbits, nodeId, key}
+  ) do
+    nextNodePredecessor = GenServer.call(self(),{:getPredecessor})
+    Enum.reduce(1..mbits, fn index ->
+    successor = if ( nextNodePredecessor  >= nodeId && nextNodePredecessor  <= successor) do
+      nextNodePredecessor 
+    else
+      successor
+    end
+    Process.send_after(self(), :stabilize, 100)
+    {:noreply,{fingerTable, predecessor, successor, mbits, nodeId, key}}
+  end
+
+  def handle_call(
+    {:countHops,}
+  )
+
+  
 end

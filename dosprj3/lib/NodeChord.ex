@@ -1,6 +1,7 @@
 defmodule CHORD.NodeChord do
   use GenServer
   require Logger
+
   @moduledoc """
   Calculates the finger table of every node and keeps updating it.
   """
@@ -20,22 +21,26 @@ defmodule CHORD.NodeChord do
   end
 
   @doc """
-  Returns `{fingerTable, predecessor, successor, mbits, nodeId, key, completedReqHopCount, noOfReq}`
+  Returns `{fingerTable, predecessor, successor, mbits, nodeId, key, completedReqHopCount, noOfReq, next}`
   """
   def init_state(inputs) do
-    predecessor = nil
-    mbits = elem(inputs, 3)
+    predecessor = elem(inputs,3)
+    mbits = elem(inputs, 4)
     successor = elem(inputs, 2)
     nodeIdList = elem(inputs, 0)
     nodeIndex = elem(inputs, 1)
-    noOfReq = elem(inputs, 4)
+    noOfReq = elem(inputs, 5)
     nodeId = elem(nodeIdList, nodeIndex)
     key = nodeId
     fingerTable = initializeFingerTable(nodeId, mbits, nodeIdList, nodeIndex)
     completedReqHopCount = []
-    # GenServer.call(self(), {:stabilize, nodeId})
-    # GenServer.call(self(), {:fixFingerTable})
-    {fingerTable, predecessor, successor, mbits, nodeId, key, completedReqHopCount, noOfReq}
+    next = 0
+    bonus = elem(inputs, 6)
+    if(bonus) do
+      Process.send_after(self(), :stabilize, 1000)
+      Process.send_after(self(), :fixFingerTable, 1000)
+    end
+    {fingerTable, predecessor, successor, mbits, nodeId, key, completedReqHopCount, noOfReq, next}
   end
 
   defp convertToHex(num, mbits) do
@@ -73,6 +78,7 @@ defmodule CHORD.NodeChord do
         nextNode = findFingerNode(nodeIdList, nodeIndex, newNodeId, mbits)
         Map.put(acc, index, nextNode)
       end)
+
     fingerTable
   end
 
@@ -111,24 +117,27 @@ defmodule CHORD.NodeChord do
   """
   def handle_cast(
         {:join, knownNode},
-        {fingerTable, predecessor, _, mbits, nodeId, key, completedReqHopCount, noOfReq}
+        {fingerTable, predecessor, _, mbits, nodeId, key, completedReqHopCount, noOfReq, next}
       ) do
     successor = GenServer.call(knownNode, {:findFingerNode, nodeId})
     GenServer.call(self(), {:notify, successor})
 
     {:noreply,
-     {fingerTable, predecessor, successor, mbits, nodeId, key, completedReqHopCount, noOfReq}}
+     {fingerTable, predecessor, successor, mbits, nodeId, key, completedReqHopCount, noOfReq,
+      next}}
   end
 
   @doc """
   Returns '{predecessor}'
   """
   def handle_call(
-        {:getPredecessor},
-        {fingerTable, predecessor, successor, mbits, nodeId, key, completedReqHopCount, noOfReq}
+        :getPredecessor, _from,
+        {fingerTable, predecessor, successor, mbits, nodeId, key, completedReqHopCount, noOfReq,
+         next}
       ) do
     {:reply, predecessor,
-     {fingerTable, predecessor, successor, mbits, nodeId, key, completedReqHopCount, noOfReq}}
+     {fingerTable, predecessor, successor, mbits, nodeId, key, completedReqHopCount, noOfReq,
+      next}}
   end
 
   @doc """
@@ -136,53 +145,84 @@ defmodule CHORD.NodeChord do
   """
   def handle_cast(
         {:notify, newPredecessor},
-        {fingerTable, _, successor, mbits, nodeId, key, completedReqHopCount, noOfReq}
+        {fingerTable, _, successor, mbits, nodeId, key, completedReqHopCount, noOfReq, next}
       ) do
     {:noreply,
-     {fingerTable, newPredecessor, successor, mbits, nodeId, key, completedReqHopCount, noOfReq}}
+     {fingerTable, newPredecessor, successor, mbits, nodeId, key, completedReqHopCount, noOfReq,
+      next}}
   end
 
   @doc """
   Finds successor periodically and refreshes the Fingertable
   """
-  def handle_cast(
-        {:fixFingerTable},
-        {fingerTable, predecessor, successor, mbits, nodeId, key, completedReqHopCount, noOfReq}
+  def handle_info(
+        :fixFingerTable,
+        {fingerTable, predecessor, successor, mbits, nodeId, key, completedReqHopCount, noOfReq,
+         next}
       ) do
-    Enum.each(0..(mbits - 1), fn index ->
-      GenServer.cast(self(), {:findSuccessor, fingerTable[index], nodeId, 0})
-    end)
+    next = next + 1
 
-    Process.send_after(self(), :fixFingerTable, 100)
+    next =
+      if(next > mbits) do
+        1
+      else
+        next
+      end
+
+    newnodeId = convertToInt(nodeId) + Kernel.trunc(:math.pow(2, next - 1))
+    newnodeId = convertToHex(newnodeId, mbits)
+    GenServer.cast({:global, nodeId}, {:findSuccessor, newnodeId, nodeId, 0, true, next, false})
+
+    Process.send_after({:global, nodeId}, :fixFingerTable, 1000)
 
     {:noreply,
-     {fingerTable, predecessor, successor, mbits, nodeId, key, completedReqHopCount, noOfReq}}
+     {fingerTable, predecessor, successor, mbits, nodeId, key, completedReqHopCount, noOfReq,
+      next}}
   end
 
   @doc """
 
   """
-  def handle_cast(
-        {:stabilize, nodeId},
-        {fingerTable, predecessor, successor, mbits, nodeId, key, completedReqHopCount, noOfReq}
+  def handle_info(
+        :stabilize,
+        {fingerTable, predecessor, successor, mbits, nodeId, key, completedReqHopCount, noOfReq,
+         next}
       ) do
-    # Get predecessor of successor
-    nextNodePredecessor = GenServer.call(successor, {:getPredecessor})
-
     successor =
-      Enum.reduce(1..mbits, 0, fn _, newSuccessor ->
+      if(:global.whereis_name(successor) == :undefined) do
+        GenServer.call({:global, nodeId}, {:findSuccessor, nodeId, nodeId, 0, false, 0, true})
+        successor
+      else
+        # Get predecessor of successor
+        nextNodePredecessor = GenServer.call({:global, successor},:getPredecessor)
+        nextNodePredecessorInt = convertToInt(nextNodePredecessor)
+        successorInt = convertToInt(successor)
+        nodeIdInt = convertToInt(nodeId)
+        predecessorRelative = computeRelative(nextNodePredecessorInt, nodeIdInt, mbits)
+        successorRelative = computeRelative(successorInt, nodeIdInt, mbits)
+
         newSuccessor =
-          if nextNodePredecessor >= nodeId && nextNodePredecessor <= successor do
+          if predecessorRelative > 0 && successorRelative <= successorRelative do
             nextNodePredecessor
           else
             successor
           end
-      end)
 
-    Process.send_after(self(), :stabilize, 100)
+        newSuccessor = convertToHex(newSuccessor, mbits)
+
+        if(:global.whereis_name(newSuccessor) != :undefined) do
+          # Notify the successor if it is alive
+          GenServer.cast({:global, newSuccessor}, {:notify, nodeId})
+        end
+
+        newSuccessor
+      end
+
+    Process.send_after(self(), :stabilize, 1000)
 
     {:noreply,
-     {fingerTable, predecessor, successor, mbits, nodeId, key, completedReqHopCount, noOfReq}}
+     {fingerTable, predecessor, successor, mbits, nodeId, key, completedReqHopCount, noOfReq,
+      next}}
   end
 
   @doc """
@@ -190,8 +230,9 @@ defmodule CHORD.NodeChord do
   Calculates the hop count for every request.
   """
   def handle_cast(
-        {:findSuccessor, nodeIdToFind, startingNode, hopCount},
-        {fingerTable, predecessor, successor, mbits, nodeId, key, completedReqHopCount, noOfReq}
+        {:findSuccessor, nodeIdToFind, startingNode, hopCount, bFixFinger, index, bStabilize},
+        {fingerTable, predecessor, successor, mbits, nodeId, key, completedReqHopCount, noOfReq,
+         next}
       ) do
     nodeIdToFindInt = convertToInt(nodeIdToFind)
     nodeIdInt = convertToInt(nodeId)
@@ -201,7 +242,10 @@ defmodule CHORD.NodeChord do
 
     if findRelativeId > 0 && findRelativeId < successorRelativeId do
       # Inform the node which started the search that key is found
-      GenServer.cast({:global, startingNode}, {:searchCompleted, successor, hopCount})
+      GenServer.cast(
+        {:global, startingNode},
+        {:searchCompleted, successor, hopCount, bFixFinger, index, bStabilize}
+      )
     else
       hopCount = hopCount + 1
       nearesetNode = closestPrecedingNode(nodeIdInt, nodeIdToFindInt, mbits, fingerTable)
@@ -209,12 +253,13 @@ defmodule CHORD.NodeChord do
       # Query the successor Node for the key.
       GenServer.cast(
         {:global, nearesetNode},
-        {:findSuccessor, nodeIdToFind, startingNode, hopCount}
+        {:findSuccessor, nodeIdToFind, startingNode, hopCount, bFixFinger, index, bStabilize}
       )
     end
 
     {:noreply,
-     {fingerTable, predecessor, successor, mbits, nodeId, key, completedReqHopCount, noOfReq}}
+     {fingerTable, predecessor, successor, mbits, nodeId, key, completedReqHopCount, noOfReq,
+      next}}
   end
 
   @doc """
@@ -229,7 +274,9 @@ defmodule CHORD.NodeChord do
           fingerIdRelative = computeRelative(fingerNodeInt, nodeIdInt, mbits)
 
           if fingerIdRelative > 0 && fingerIdRelative < findIdRelative do
-            {:halt, fingerTable[mapKey]}
+            if(:global.whereis_name(fingerTable[mapKey]) != :undefined) do
+              {:halt, fingerTable[mapKey]}
+            end
           else
             {:cont, fingerTable[mbits - 1]}
           end
@@ -260,16 +307,18 @@ defmodule CHORD.NodeChord do
   """
   def handle_cast(
         {:searchKeys},
-        {fingerTable, predecessor, successor, mbits, nodeId, key, completedReqHopCount, noOfReq}
+        {fingerTable, predecessor, successor, mbits, nodeId, key, completedReqHopCount, noOfReq,
+         next}
       ) do
     Enum.each(0..(noOfReq - 1), fn _ ->
       randomKey = generateRandomKey(mbits)
-      GenServer.cast({:global, nodeId}, {:findSuccessor, randomKey, nodeId, 0})
+      GenServer.cast({:global, nodeId}, {:findSuccessor, randomKey, nodeId, 0, false, 0, false})
       Process.sleep(1000)
     end)
 
     {:noreply,
-     {fingerTable, predecessor, successor, mbits, nodeId, key, completedReqHopCount, noOfReq}}
+     {fingerTable, predecessor, successor, mbits, nodeId, key, completedReqHopCount, noOfReq,
+      next}}
   end
 
   defp generateRandomKey(mbits) do
@@ -287,10 +336,26 @@ defmodule CHORD.NodeChord do
   Calculates average hop count when all the requested keys are found.
   """
   def handle_cast(
-        {:searchCompleted, newSuccessor, hopCount},
-        {fingerTable, predecessor, successor, mbits, nodeId, key, completedReqHopCount, noOfReq}
+        {:searchCompleted, newSuccessor, hopCount, bFixFinger, index, bStabilize},
+        {fingerTable, predecessor, successor, mbits, nodeId, key, completedReqHopCount, noOfReq,
+         next}
       ) do
     completedReqHopCount = completedReqHopCount ++ [hopCount]
+    # Update the finger table if find Successor was trigerred by fixFingers
+    fingerTable =
+      if(bFixFinger) do
+        Map.put(fingerTable, index, newSuccessor)
+      else
+        fingerTable
+      end
+
+    # Update the successor if findsuccessor was initiated by Stabilize when successor is dead
+    successor =
+      if(bStabilize) do
+        newSuccessor
+      else
+        successor
+      end
 
     if(length(completedReqHopCount) == noOfReq) do
       avgHop = Enum.sum(completedReqHopCount) / noOfReq
@@ -299,6 +364,7 @@ defmodule CHORD.NodeChord do
     end
 
     {:noreply,
-     {fingerTable, predecessor, successor, mbits, nodeId, key, completedReqHopCount, noOfReq}}
+     {fingerTable, predecessor, successor, mbits, nodeId, key, completedReqHopCount, noOfReq,
+      next}}
   end
 end

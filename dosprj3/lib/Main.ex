@@ -1,8 +1,8 @@
 defmodule CHORD.Main do
   require Logger
   @moduledoc """
-  Creates topology and Transmits message or s,w
-  based on the type of algorithm to random neighbours.
+  Creates chord ring based on number of nodes.
+  Starts the search for the requested keys.
   """
   @doc """
   Starts the GenServer.
@@ -47,12 +47,25 @@ defmodule CHORD.Main do
     end)
   end
 
+  defp findUniqueHash(mbits, nodesMap) do
+    nodeId = :crypto.hash(:sha, createRandomIpAddress) |> Base.encode16
+    # Take last m bits from the hash string
+    nodeId = String.slice(nodeId, (String.length(nodeId) - div(mbits,4))..String.length(nodeId))
+    nodesList =if (Map.has_key?(nodesMap,nodeId)) do
+      findUniqueHash(mbits,nodesMap)
+    else
+      nodesMap = Map.put(nodesMap, nodeId, true)
+      {nodesMap,nodeId}
+    end
+    nodesList
+  end
+
   defp getnodeIdTuple(noOfNodes, mbits) do
+    nodesMap = %{}
     nodeIdTuple = Enum.reduce(1..noOfNodes,{}, fn index, acc ->
-      nodeId = :crypto.hash(:sha, createRandomIpAddress) |> Base.encode16
-      # Take last m bits from the hash string
-      nodeId = String.slice(nodeId, (String.length(nodeId) - div(mbits,4))..String.length(nodeId))
-      acc = Tuple.append(acc, nodeId)
+      uniqueNodeId = findUniqueHash(mbits,nodesMap)
+        nodesMap = elem(uniqueNodeId,0)
+        acc = Tuple.append(acc, elem(uniqueNodeId,1))
     end)
     nodeIdList = Tuple.to_list(nodeIdTuple)
     nodeIdList = Enum.sort(nodeIdList)
@@ -66,11 +79,17 @@ defmodule CHORD.Main do
     aIpAddr |> Enum.join(":")
   end
 
+  @doc """
+  Starts searching for the keys
+  """
   def handle_cast({:startQuery},{noOfNodes, numofReq, nodes, completedNodes}) do
     initiateSearchKeysForAllNodes(nodes)
     {:noreply,{noOfNodes, numofReq, nodes, completedNodes}}
   end
 
+  @doc """
+  Keeps track of the nodes which found the keys
+  """
   def handle_cast({:completedReq, nodeId, avgHop}, {noOfNodes, numofReq, nodes, completedNodes}) do
     completedNodes = Map.put(completedNodes, nodeId, avgHop)
     if map_size(completedNodes) == noOfNodes do

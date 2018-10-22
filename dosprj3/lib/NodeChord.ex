@@ -1,7 +1,9 @@
 defmodule CHORD.NodeChord do
   use GenServer
   require Logger
-
+  @moduledoc """
+  Calculates the finger table of every node and keeps updating it.
+  """
   @doc """
   Starts the GenServer.
   """
@@ -18,8 +20,7 @@ defmodule CHORD.NodeChord do
   end
 
   @doc """
-  Initiates the message to empty string.
-  Returns `{msg, neighbours, count}`
+  Returns `{fingerTable, predecessor, successor, mbits, nodeId, key, completedReqHopCount, noOfReq}`
   """
   def init_state(inputs) do
     predecessor = nil
@@ -39,7 +40,7 @@ defmodule CHORD.NodeChord do
 
   defp convertToHex(num, mbits) do
     hexNumber = Integer.to_string(num, 16)
-    # prepeing 0 to have similar ids
+    # prepending 0 to have similar ids
     difference = div(mbits, 4) - String.length(hexNumber)
 
     hex =
@@ -56,6 +57,9 @@ defmodule CHORD.NodeChord do
     elem(Integer.parse(num, 16), 0)
   end
 
+  @doc """
+  Creates the FingerTable with nodeId and successor
+  """
   def initializeFingerTable(nodeId, mbits, nodeIdList, nodeIndex) do
     fingerTable =
       Enum.reduce(0..(mbits - 1), %{}, fn index, acc ->
@@ -101,6 +105,10 @@ defmodule CHORD.NodeChord do
     fingerNodeId
   end
 
+  @doc """
+  Called when a new node enters.
+  Passing a knownNode from the ring.
+  """
   def handle_cast(
         {:join, knownNode},
         {fingerTable, predecessor, _, mbits, nodeId, key, completedReqHopCount, noOfReq}
@@ -112,6 +120,9 @@ defmodule CHORD.NodeChord do
      {fingerTable, predecessor, successor, mbits, nodeId, key, completedReqHopCount, noOfReq}}
   end
 
+  @doc """
+  Returns '{predecessor}'
+  """
   def handle_call(
         {:getPredecessor},
         {fingerTable, predecessor, successor, mbits, nodeId, key, completedReqHopCount, noOfReq}
@@ -120,6 +131,9 @@ defmodule CHORD.NodeChord do
      {fingerTable, predecessor, successor, mbits, nodeId, key, completedReqHopCount, noOfReq}}
   end
 
+  @doc """
+  Updates the predecessor of the NewNode's successor.
+  """
   def handle_cast(
         {:notify, newPredecessor},
         {fingerTable, _, successor, mbits, nodeId, key, completedReqHopCount, noOfReq}
@@ -128,6 +142,9 @@ defmodule CHORD.NodeChord do
      {fingerTable, newPredecessor, successor, mbits, nodeId, key, completedReqHopCount, noOfReq}}
   end
 
+  @doc """
+  Finds successor periodically and refreshes the Fingertable
+  """
   def handle_cast(
         {:fixFingerTable},
         {fingerTable, predecessor, successor, mbits, nodeId, key, completedReqHopCount, noOfReq}
@@ -142,6 +159,9 @@ defmodule CHORD.NodeChord do
      {fingerTable, predecessor, successor, mbits, nodeId, key, completedReqHopCount, noOfReq}}
   end
 
+  @doc """
+
+  """
   def handle_cast(
         {:stabilize, nodeId},
         {fingerTable, predecessor, successor, mbits, nodeId, key, completedReqHopCount, noOfReq}
@@ -165,6 +185,10 @@ defmodule CHORD.NodeChord do
      {fingerTable, predecessor, successor, mbits, nodeId, key, completedReqHopCount, noOfReq}}
   end
 
+  @doc """
+  Finds successor of every node.
+  Calculates the hop count for every request.
+  """
   def handle_cast(
         {:findSuccessor, nodeIdToFind, startingNode, hopCount},
         {fingerTable, predecessor, successor, mbits, nodeId, key, completedReqHopCount, noOfReq}
@@ -193,6 +217,9 @@ defmodule CHORD.NodeChord do
      {fingerTable, predecessor, successor, mbits, nodeId, key, completedReqHopCount, noOfReq}}
   end
 
+  @doc """
+  Finds the highest predecessor of the nodeId from the finger table
+  """
   def closestPrecedingNode(nodeIdInt, nodeIdToFindInt, mbits, fingerTable) do
     foundNodeId =
       Enum.reduce_while((mbits - 1)..0, 0, fn mapKey, _ ->
@@ -227,6 +254,10 @@ defmodule CHORD.NodeChord do
     ret
   end
 
+  @doc """
+  Random keys are generated based on number of requests
+  Search for the keys in the chord ring
+  """
   def handle_cast(
         {:searchKeys},
         {fingerTable, predecessor, successor, mbits, nodeId, key, completedReqHopCount, noOfReq}
@@ -234,6 +265,7 @@ defmodule CHORD.NodeChord do
     Enum.each(0..(noOfReq - 1), fn _ ->
       randomKey = generateRandomKey(mbits)
       GenServer.cast({:global, nodeId}, {:findSuccessor, randomKey, nodeId, 0})
+      Process.sleep(1000)
     end)
 
     {:noreply,
@@ -251,6 +283,9 @@ defmodule CHORD.NodeChord do
     hashKey
   end
 
+  @doc """
+  Calculates average hop count when all the requested keys are found.
+  """
   def handle_cast(
         {:searchCompleted, newSuccessor, hopCount},
         {fingerTable, predecessor, successor, mbits, nodeId, key, completedReqHopCount, noOfReq}

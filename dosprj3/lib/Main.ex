@@ -21,21 +21,29 @@ defmodule CHORD.Main do
 
   defp init_state(inputs) do
     noOfNodes = elem(inputs, 0) || 5
-    nodes = {}
     numofReq = elem(inputs, 1)
     completedNodes = %{}
-    createChordRing(noOfNodes)
+    nodes = createChordRing(noOfNodes, numofReq)
     {noOfNodes, numofReq, nodes, completedNodes}
   end
 
-  defp createChordRing(noOfNodes) do
+  defp createChordRing(noOfNodes, numofReq) do
     mbits = 12
     nodeIdTuple = getnodeIdTuple(noOfNodes, mbits)
+    #nodeIdTuple = {"036", "05F", "2A4", "4A7", "5DD", "7DC", "832", "B8A", "BFD", "CFE", "D51","FBE"}
     Enum.each(0..noOfNodes-1, fn index->
       # Node id is present at currenct index and Successor is (next index)% noOfNodes in list
       nodeId = elem(nodeIdTuple,index)
-      #nodeIdTuple = {"396","458","4DE","63E","762","82A","92E","954","AEF","CD3","ED8","EF5"}
-      CHORD.NodeChord.start_link({nodeIdTuple, index, elem(nodeIdTuple,rem(index+1,noOfNodes)), mbits}, nodeId)
+      CHORD.NodeChord.start_link({nodeIdTuple, index, elem(nodeIdTuple,rem(index+1,noOfNodes)), mbits, numofReq}, nodeId)
+    end)
+    Logger.info("Initial Chord Ring Created")
+    nodeIdTuple
+    #initiateSearchKeysForAllNodes(nodeIdTuple)
+  end
+
+  defp initiateSearchKeysForAllNodes(nodeIdTuple) do
+    Enum.each(Tuple.to_list(nodeIdTuple), fn nodeId ->
+      GenServer.cast({:global, nodeId}, {:searchKeys})
     end)
   end
 
@@ -58,10 +66,16 @@ defmodule CHORD.Main do
     aIpAddr |> Enum.join(":")
   end
 
-  def handle_call({:completedReq, nodeId, avgHop}, {noOfNodes, numofReq, nodes, completedNodes}) do
-    completedNodes = Map.put(nodeId, avgHop)
+  def handle_cast({:startQuery},{noOfNodes, numofReq, nodes, completedNodes}) do
+    initiateSearchKeysForAllNodes(nodes)
+    {:noreply,{noOfNodes, numofReq, nodes, completedNodes}}
+  end
+
+  def handle_cast({:completedReq, nodeId, avgHop}, {noOfNodes, numofReq, nodes, completedNodes}) do
+    completedNodes = Map.put(completedNodes, nodeId, avgHop)
     if map_size(completedNodes) == noOfNodes do
       Logger.info("Completed chord search #{inspect(completedNodes)}")
     end
+    {:noreply,{noOfNodes, numofReq, nodes, completedNodes}}
   end
 end

@@ -28,6 +28,19 @@ $ iex main = CHORD.Main.start_link(100,10)
 $ iex GenServer.cast(elem(main,1),{:startQuery})
 ```
 
+For bonus part:
+
+```elixir
+$ mix compile
+$ iex -S mix
+$ iex main = CHORD.Main.start_link(100,10,32,true)
+$ iex GenServer.cast(elem(main,1),{:startQuery})
+To kill a random node :
+$ iex GenServer.stop(:global.whereis_name(<printedNodeIdString>, :normal) 
+We are printing the list of node ids in console, you can pick any one of the node ids as the printedNodeIdString
+```
+
+
 ## Tests
 
 To run the tests for this project, simply run in your terminal:
